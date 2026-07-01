@@ -1,0 +1,279 @@
+{
+  "name": "Automatic Image Tagging & Organization (Uploadcare)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "uploadcare-file-uploaded",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "Webhook (file.uploaded)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-uuid-1",
+              "name": "uuid",
+              "value": "={{ $json.body.data.uuid }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Extract UUID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.uploadcare.com/addons/aws_rekognition_detect_labels/execute/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Uploadcare.Simple YOUR_PUBLIC_KEY:YOUR_SECRET_KEY" },
+            { "name": "Accept", "value": "application/vnd.uploadcare-v0.7+json" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"target\": \"{{ $json.uuid }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000003",
+      "name": "Execute Rekognition",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "amount": 8,
+        "unit": "seconds"
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000004",
+      "name": "Wait for Add-on",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.uploadcare.com/addons/aws_rekognition_detect_labels/execute/status/?request_id={{ $json.request_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Uploadcare.Simple YOUR_PUBLIC_KEY:YOUR_SECRET_KEY" },
+            { "name": "Accept", "value": "application/vnd.uploadcare-v0.7+json" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000005",
+      "name": "Check Add-on Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-done-1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000006",
+      "name": "Add-on Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000007",
+      "name": "Wait & Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1320, 480]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.uploadcare.com/files/{{ $('Extract UUID').item.json.uuid }}/?include=appdata",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Uploadcare.Simple YOUR_PUBLIC_KEY:YOUR_SECRET_KEY" },
+            { "name": "Accept", "value": "application/vnd.uploadcare-v0.7+json" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000008",
+      "name": "Get File Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read Rekognition labels from appdata and keep only confident tags.\nconst CONFIDENCE_THRESHOLD = 80;\n\nconst file = $input.first().json;\nconst labels =\n  file?.appdata?.aws_rekognition_detect_labels?.data?.Labels || [];\n\nconst tags = labels\n  .filter((label) => label.Confidence >= CONFIDENCE_THRESHOLD)\n  .map((label) => label.Name);\n\nreturn [\n  {\n    json: {\n      uuid: file.uuid,\n      cdnUrl: `https://2ta6v1zvst.ucarecd.net/${file.uuid}/`,\n      tags,\n      tagCount: tags.length,\n    },\n  },\n];"
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000009",
+      "name": "Extract Tags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-uuid-2",
+              "name": "uuid",
+              "value": "={{ $json.uuid }}",
+              "type": "string"
+            },
+            {
+              "id": "set-tags-1",
+              "name": "tags",
+              "value": "={{ $json.tags }}",
+              "type": "array"
+            },
+            {
+              "id": "set-cdn-1",
+              "name": "cdnUrl",
+              "value": "={{ $json.cdnUrl }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000010",
+      "name": "Build Tag Record",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1980, 200]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "YOUR_DATA_TABLE_ID",
+          "mode": "list",
+          "cachedResultName": "image_tags"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "uuid": "={{ $json.uuid }}",
+            "cdnUrl": "={{ $json.cdnUrl }}",
+            "tags": "={{ $json.tags.join(', ') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "uuid", "displayName": "uuid", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "cdnUrl", "displayName": "cdnUrl", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "tags", "displayName": "tags", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0000-4000-8000-000000000011",
+      "name": "Store Tags (Data Table)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [2200, 200]
+    }
+  ],
+  "connections": {
+    "Webhook (file.uploaded)": {
+      "main": [[{ "node": "Extract UUID", "type": "main", "index": 0 }]]
+    },
+    "Extract UUID": {
+      "main": [[{ "node": "Execute Rekognition", "type": "main", "index": 0 }]]
+    },
+    "Execute Rekognition": {
+      "main": [[{ "node": "Wait for Add-on", "type": "main", "index": 0 }]]
+    },
+    "Wait for Add-on": {
+      "main": [[{ "node": "Check Add-on Status", "type": "main", "index": 0 }]]
+    },
+    "Check Add-on Status": {
+      "main": [[{ "node": "Add-on Done?", "type": "main", "index": 0 }]]
+    },
+    "Add-on Done?": {
+      "main": [
+        [{ "node": "Get File Info", "type": "main", "index": 0 }],
+        [{ "node": "Wait & Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait & Retry": {
+      "main": [[{ "node": "Check Add-on Status", "type": "main", "index": 0 }]]
+    },
+    "Get File Info": {
+      "main": [[{ "node": "Extract Tags", "type": "main", "index": 0 }]]
+    },
+    "Extract Tags": {
+      "main": [[{ "node": "Build Tag Record", "type": "main", "index": 0 }]]
+    },
+    "Build Tag Record": {
+      "main": [[{ "node": "Store Tags (Data Table)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}
